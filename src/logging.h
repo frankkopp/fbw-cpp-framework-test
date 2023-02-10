@@ -104,12 +104,12 @@ public:
   Logger(Logger const &&) = delete;            // move
   Logger &operator=(const Logger &&) = delete; // move assignment
 
-  void critical(const std::string& msg) { std::cerr << "critical: " + msg; }
-  void error(const std::string& msg) { std::cerr << "error: "       + msg; }
-  void warn(const std::string& msg) { std::cerr << "warn: "         + msg; }
+  void critical(const std::string& msg) { std::cerr << "critical: " + msg << std::endl; }
+  void error(const std::string& msg) { std::cerr << "error: "       + msg << std::endl; }
+  void warn(const std::string& msg) { std::cerr << "warn: "         + msg << std::endl; }
   void info(const std::string& msg) { std::cout << "info: "        << msg << std::endl; }
   void debug(const std::string& msg) { std::cout << "debug: "      << msg << std::endl; }
-  void verbose(const std::string& msg) { std::cout << "verbose: "      << msg << std::endl; }
+  void verbose(const std::string& msg) { std::cout << "verbose: "  << msg << std::endl; }
   void trace(const std::string& msg) { std::cout << "trace: "      << msg << std::endl; }
 };
 
