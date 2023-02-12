@@ -23,10 +23,24 @@ enum EVENT_IDS {
   EVENT_SIM_START,
 };
 
+enum DATA_DEFINE_IDS {
+  EXAMPLE_CLIENT_DATA_DEFINITION_ID,
+  EXAMPLE2_CLIENT_DATA_DEFINITION_ID,
+  DEFINITION_TITLE,
+};
+
+enum DATA_REQUEST_IDS {
+  EXAMPLE_CLIENT_DATA_REQUEST_ID,
+  EXAMPLE2_CLIENT_DATA_REQUEST_ID,
+  REQUEST_TITLE,
+};
+
+struct Title {
+  char title[256] = "";
+} title{};
+
 // ClientDataArea variables
 const int EXAMPLE_CLIENT_DATA_ID = 0;
-const int EXAMPLE_CLIENT_DATA_DEFINITION_ID = 0;
-const int EXAMPLE_CLIENT_DATA_REQUEST_ID = 0;
 const std::string EXAMPLE_CLIENT_DATA_NAME = "EXAMPLE CLIENT DATA";
 struct ExampleClientData {
   FLOAT64 aFloat64;
@@ -41,8 +55,6 @@ ExampleClientData exampleClientData{};
 
 // ClientDataArea variables
 const int EXAMPLE2_CLIENT_DATA_ID = 1;
-const int EXAMPLE2_CLIENT_DATA_DEFINITION_ID = 1;
-const int EXAMPLE2_CLIENT_DATA_REQUEST_ID = 1;
 const std::string EXAMPLE2_CLIENT_DATA_NAME = "EXAMPLE 2 CLIENT DATA";
 struct Example2ClientData {
   INT8 anInt8;
@@ -62,6 +74,10 @@ void initialize() {
 
   if (!SUCCEEDED(SimConnect_SubscribeToSystemEvent(hSimConnect, EVENT_SIM_START, "SimStart"))) {
     LOG_ERROR("Failed to subscribe to SimStart event");
+  }
+
+  if(!SUCCEEDED(SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_TITLE, "TITLE", nullptr, SIMCONNECT_DATATYPE_STRING32))) {
+    LOG_ERROR("Failed to add definition for Title");
   }
 
   // =========================
@@ -140,6 +156,19 @@ void processReceivedClientData(SIMCONNECT_RECV* pRecv) {
   }
 }
 
+void processReceivedSimObjectData(SIMCONNECT_RECV* pRecv) {
+  const auto pData = reinterpret_cast<const SIMCONNECT_RECV_SIMOBJECT_DATA*>(pRecv);
+  switch (pData->dwRequestID) {
+    case REQUEST_TITLE:
+      LOG_INFO("Received sim object data: Title");
+      title = *((Title*)&pData->dwData);
+      break;
+    default:
+      LOG_WARN("Received unknown sim object data request ID: " + std::to_string(pData->dwRequestID));
+      break;
+  }
+}
+
 void CALLBACK dispatchCallback(SIMCONNECT_RECV* pRecv,
                                [[maybe_unused]] DWORD cbData,
                                [[maybe_unused]] void* pContext) {
@@ -148,6 +177,7 @@ void CALLBACK dispatchCallback(SIMCONNECT_RECV* pRecv,
 
     case SIMCONNECT_RECV_ID_SIMOBJECT_DATA:
       LOG_INFO("SIMCONNECT_RECV_ID_SIMOBJECT_DATA");
+      processReceivedSimObjectData(pRecv);
       break;
 
     case SIMCONNECT_RECV_ID_CLIENT_DATA:
@@ -192,6 +222,16 @@ void CALLBACK dispatchCallback(SIMCONNECT_RECV* pRecv,
       quit = 1;
       break;
 
+    case SIMCONNECT_RECV_ID_SYSTEM_STATE: {
+      auto* const pState = reinterpret_cast<SIMCONNECT_RECV_SYSTEM_STATE*>(pRecv);
+      LOG_INFO("SIMCONNECT_RECV_ID_SYSTEM_STATE: "
+               + std::to_string(pState->dwInteger)
+               + " " + pState->szString + " "
+               + std::to_string(pState->dwRequestID)
+               + " " + std::to_string(pState->fFloat));
+      break;
+    }
+
     default:
       LOG_WARN("Unknown/Unimplemented SimConnect message received: " + std::to_string(pRecv->dwID));
       break;
@@ -220,6 +260,12 @@ int main([[maybe_unused]] int argc, [[maybe_unused]] char* argv[]) {
     if (!initilized) {
       getDispatch();
       Sleep(500);
+      continue;
+    }
+
+    // Request title
+    if (!SUCCEEDED(SimConnect_RequestDataOnSimObject(hSimConnect, REQUEST_TITLE, DEFINITION_TITLE, SIMCONNECT_OBJECT_ID_USER,SIMCONNECT_PERIOD_ONCE, SIMCONNECT_DATA_REQUEST_FLAG_DEFAULT))) {
+      LOG_ERROR("Requesting title failed");
       continue;
     }
 
@@ -252,7 +298,9 @@ int main([[maybe_unused]] int argc, [[maybe_unused]] char* argv[]) {
 
     getDispatch();
 
-    std::cout << "DATA 1 ---- ( requested from sim) ---------------------------------" << std::endl;
+    std::cout << "TITLE      " << title.title << std::endl;
+
+    std::cout << "DATA 1 ---- ( requested from sim ) --------------------------------" << std::endl;
     std::cout << "FLOAT64    " << exampleClientData.aFloat64 << std::endl;
     std::cout << "FLOAT32    " << exampleClientData.aFloat32 << std::endl;
     std::cout << "INT64      " << exampleClientData.anInt64 << std::endl;
