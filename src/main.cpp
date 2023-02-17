@@ -4,26 +4,25 @@
 #include <strsafe.h>
 #include <cstdio>
 #include <string>
-#include <ctime>
-#include <cstdlib>
 #include <random>
 #include <array>
 #include <cassert>
+#include <iomanip>
 
 #include "SimConnect.h"
 
 #include "SimconnectExceptionStrings.h"
 #include "logging.h"
+#include "longtext.h"
 
-#define assertm(exp, msg) assert(((void)msg, exp))
-
-const int updateDelay = 5000;
+const int updateDelay = 2500;
 
 int quit = 0;
 bool initilized = false;
 
 typedef double FLOAT64;
 typedef float FLOAT32;
+typedef unsigned char BYTE;
 
 HANDLE hSimConnect = nullptr;
 
@@ -34,6 +33,7 @@ enum EVENT_IDS {
 enum CLIENT_DATA_IDS {
   EXAMPLE_CLIENT_DATA_ID,
   EXAMPLE2_CLIENT_DATA_ID,
+  BIG_CLIENT_DATA_ID,
   HUGE_CLIENT_META_DATA_ID,
   HUGE_CLIENT_DATA_ID,
 };
@@ -42,6 +42,7 @@ enum DATA_DEFINE_IDS {
   DEFINITION_TITLE,
   EXAMPLE_CLIENT_DATA_DEFINITION_ID,
   EXAMPLE2_CLIENT_DATA_DEFINITION_ID,
+  BIG_CLIENT_DATA_DEFINITION_ID,
   HUGE_CLIENT_META_DATA_DEFINITION_ID,
   HUGE_CLIENT_DATA_DEFINITION_ID,
 };
@@ -50,6 +51,7 @@ enum DATA_REQUEST_IDS {
   REQUEST_TITLE,
   EXAMPLE_CLIENT_DATA_REQUEST_ID,
   EXAMPLE2_CLIENT_DATA_REQUEST_ID,
+  BIG_CLIENT_DATA_REQUEST_ID,
   HUGE_CLIENT_META_DATA_REQUEST_ID,
   HUGE_CLIENT_DATA_REQUEST_ID,
 };
@@ -83,14 +85,11 @@ struct Example2ClientData {
 } __attribute__((packed)) example2ClientData{};
 const size_t example2ClientDataSize = sizeof(Example2ClientData);
 
-// Huge client data area
-const std::string HUGE_CLIENT_DATA_NAME = "HUGE CLIENT DATA";
-constexpr DWORD ChunkSize = SIMCONNECT_CLIENTDATA_MAX_SIZE;
-const size_t hugeClientDataSize = (17 * 1024);
-const size_t hugeClientDataSizeInBytes = hugeClientDataSize * sizeof(char);
-std::size_t hugeClientDataHash;
-
-std::vector<char> hugeClientData{};
+// Big ClientDataArea variable
+const std::string BIG_CLIENT_DATA_NAME = "BIG CLIENT DATA";
+struct BigClientData {
+  std::array<BYTE, SIMCONNECT_CLIENTDATA_MAX_SIZE> dataChunk;
+} __attribute__((packed)) bigClientData{};
 
 // Huge client data meta data
 const std::string HUGE_CLIENT_META_DATA_NAME = "HUGE CLIENT DATA META DATA";
@@ -100,7 +99,13 @@ struct HugeClientMetaData {
 } __attribute__((packed)) hugeClientMetaData{};
 const size_t hugeClientMetaDataSize = sizeof(HugeClientMetaData);
 
-
+// Huge client data area
+const std::string HUGE_CLIENT_DATA_NAME = "HUGE CLIENT DATA";
+constexpr DWORD ChunkSize = SIMCONNECT_CLIENTDATA_MAX_SIZE;
+const size_t hugeClientDataSize = longText.size();
+const size_t hugeClientDataSizeInBytes = hugeClientDataSize * sizeof(BYTE);
+std::size_t hugeClientDataHash;
+std::vector<BYTE> hugeClientData{};
 
 
 void initialize() {
@@ -169,6 +174,35 @@ void initialize() {
   if (!SUCCEEDED(SimConnect_CreateClientData(hSimConnect, EXAMPLE2_CLIENT_DATA_ID, example2ClientDataSize,
                                              SIMCONNECT_CREATE_CLIENT_DATA_FLAG_DEFAULT))) {
     LOG_ERROR("Creating client data failed: " + EXAMPLE2_CLIENT_DATA_NAME);
+  }
+
+  // =========================
+  // BIG CLIENT DATA
+
+  hresult = SimConnect_MapClientDataNameToID(hSimConnect, BIG_CLIENT_DATA_NAME.c_str(), BIG_CLIENT_DATA_ID);
+  if (hresult != S_OK) {
+    switch (hresult) {
+      case SIMCONNECT_EXCEPTION_ALREADY_CREATED:
+        LOG_ERROR("Client data area BIG_CLIENT_DATA_NAME already in use: " + BIG_CLIENT_DATA_NAME);
+        break;
+      case SIMCONNECT_EXCEPTION_DUPLICATE_ID:
+        LOG_ERROR("Client data area ID already in use: " + std::to_string(BIG_CLIENT_DATA_ID));
+        break;
+      default:
+        LOG_ERROR("Mapping client data area BIG_CLIENT_DATA_NAME to ID failed: " + BIG_CLIENT_DATA_NAME);
+    }
+  }
+
+  // Add the data definition to the client data area
+  if (!SUCCEEDED(SimConnect_AddToClientDataDefinition(
+    hSimConnect, BIG_CLIENT_DATA_DEFINITION_ID, SIMCONNECT_CLIENTDATAOFFSET_AUTO, sizeof(bigClientData)))) {
+    LOG_ERROR("Adding to client data definition failed: " + BIG_CLIENT_DATA_NAME);
+  }
+
+  // Create/allocate the client data area
+  if (!SUCCEEDED(SimConnect_CreateClientData(hSimConnect, BIG_CLIENT_DATA_ID, sizeof(bigClientData),
+                                             SIMCONNECT_CREATE_CLIENT_DATA_FLAG_DEFAULT))) {
+    LOG_ERROR("Creating client data failed: " + BIG_CLIENT_DATA_NAME);
   }
 
   // =========================
@@ -341,7 +375,7 @@ void getDispatch() {
   }
 }
 
-void fillWitRandomCharData(std::vector<char> &vec, const size_t size) {
+void fillWitRandomCharData(std::vector<BYTE> &vec, const size_t size) {
   std::random_device rd;
   std::mt19937 gen(rd());
   std::uniform_int_distribution<int> dis(0, 61);
@@ -352,11 +386,11 @@ void fillWitRandomCharData(std::vector<char> &vec, const size_t size) {
 }
 
 // Fowler-Noll-Vo hash function
-uint64_t fingerPrintFVN(std::vector<char> &data) {
+uint64_t fingerPrintFVN(std::vector<BYTE> &data) {
   const uint64_t FNV_offset_basis = 14695981039346656037ULL;
   const uint64_t FNV_prime = 1099511628211ULL;
   uint64_t hash = FNV_offset_basis;
-  for (char c: data) {
+  for (BYTE c: data) {
     hash ^= static_cast<uint64_t>(c);
     hash *= FNV_prime;
   }
@@ -377,7 +411,7 @@ void simconnectLoop() {
                                                      SIMCONNECT_OBJECT_ID_USER, SIMCONNECT_PERIOD_ONCE,
                                                      SIMCONNECT_DATA_REQUEST_FLAG_DEFAULT))) {
       LOG_ERROR("Requesting title failed");
-      continue;
+      break;
     }
 
     // =========================
@@ -388,7 +422,7 @@ void simconnectLoop() {
                                                 EXAMPLE_CLIENT_DATA_DEFINITION_ID,
                                                 SIMCONNECT_CLIENT_DATA_PERIOD_ONCE))) {
       LOG_ERROR("ClientDataAreaVariable: Requesting client data failed: " + EXAMPLE_CLIENT_DATA_NAME);
-      continue;
+      break;
     }
 
     // =========================
@@ -409,6 +443,20 @@ void simconnectLoop() {
 
       LOG_ERROR("Setting data to sim for " + EXAMPLE2_CLIENT_DATA_NAME + " with dataDefId="
                 + std::to_string(EXAMPLE2_CLIENT_DATA_DEFINITION_ID) + " failed!");
+      break;
+    }
+
+    // =========================
+    // BIG CLIENT DATA
+
+    if (!SUCCEEDED(SimConnect_SetClientData(
+      hSimConnect, BIG_CLIENT_DATA_ID, BIG_CLIENT_DATA_DEFINITION_ID,
+      SIMCONNECT_CLIENT_DATA_SET_FLAG_DEFAULT, 0,
+      sizeof(bigClientData), &bigClientData))) {
+
+      LOG_ERROR("Setting data to sim for " + BIG_CLIENT_DATA_NAME + " with dataDefId="
+                + std::to_string(BIG_CLIENT_DATA_DEFINITION_ID) + " failed!");
+      break;
     }
 
     // =========================
@@ -423,12 +471,13 @@ void simconnectLoop() {
 
       LOG_ERROR("Setting data to sim for " + HUGE_CLIENT_META_DATA_NAME + " with dataDefId="
                 + std::to_string(HUGE_CLIENT_META_DATA_DEFINITION_ID) + " failed!");
+      break;
     }
 
     // =========================
     // HUGE CLIENT DATA
 
-    HRESULT result = S_OK;
+    int chunkCount = 0;
     std::size_t sentBytes = 0;
 
     std::cout << "Huge client data size: " << hugeClientDataSize << std::endl;
@@ -437,46 +486,51 @@ void simconnectLoop() {
     assert((hugeClientDataSizeInBytes == hugeClientDataSize) && "Huge client data size is not equal to huge client data size in bytes");
 
     while (sentBytes < hugeClientDataSize) {
-      std::size_t remainingBytes = hugeClientDataSize - sentBytes;
+      std::size_t remainingBytes = hugeClientData.size() - sentBytes;
       std::cout << "Sent bytes: " << sentBytes << std::endl;
       std::cout << "Remaining bytes: " << remainingBytes << std::endl;
 
       if (remainingBytes >= ChunkSize) {
-        std::cout << "Sending chunk " << std::endl;
-        result &= SimConnect_SetClientData(hSimConnect, HUGE_CLIENT_DATA_ID, HUGE_CLIENT_DATA_DEFINITION_ID,
-                                           SIMCONNECT_CLIENT_DATA_SET_FLAG_DEFAULT, 0,
-                                           ChunkSize, reinterpret_cast<void*>(&hugeClientData[sentBytes]));
-//        for (int i = 0; i < ChunkSize; ++i) {
-//          std::cout << hugeClientData[sentBytes + i];
-//        }
-        std::cout << std::endl;
+        std::cout << "Sending chunk: " << std::setw(2) << ++chunkCount << std::endl;
+        //        for (int i = 0; i < ChunkSize; ++i) {
+        //          std::cout << hugeClientData[sentBytes + i];
+        //        }
+        //        std::cout << std::endl;
 
+        if (!SUCCEEDED(SimConnect_SetClientData(
+          hSimConnect, HUGE_CLIENT_DATA_ID, HUGE_CLIENT_DATA_DEFINITION_ID,
+          SIMCONNECT_CLIENT_DATA_SET_FLAG_DEFAULT, 0,
+          ChunkSize, &hugeClientData[sentBytes]))) {
+
+          LOG_ERROR("Setting data to sim for " + HUGE_CLIENT_DATA_NAME + " with dataDefId="
+                    + std::to_string(HUGE_CLIENT_DATA_DEFINITION_ID) + " failed!");
+          break;
+        }
         sentBytes += ChunkSize;
       }
       else {
-        std::cout << "Sending rest" << std::endl;
-        std::cout << "hugeClientDataSize: " << hugeClientData.size() << std::endl;
+        std::array<char, ChunkSize> buffer{};
+        std::memcpy(buffer.data(), &hugeClientData[sentBytes], remainingBytes);
+
+        std::cout << "Sending chunk: " << std::setw(2) << ++chunkCount << " (last) " << std::endl;
         std::cout << "Sent bytes: " << sentBytes << std::endl;
         std::cout << "Remaining bytes: " << remainingBytes << std::endl;
-
-        std::array<char, ChunkSize> buffer{};
-        std::cout << "Buffer size: " << buffer.size() << std::endl;
-
-        const auto src = &hugeClientData[sentBytes];
-        std::memcpy(buffer.data(), src, remainingBytes);
-
-        //        result &= SimConnect_SetClientData(hSimConnect, HUGE_CLIENT_DATA_ID, HUGE_CLIENT_DATA_DEFINITION_ID,
-        //                                           SIMCONNECT_CLIENT_DATA_SET_FLAG_DEFAULT, 0,
-        //                                           ChunkSize, buffer.data());
-
-//        for (char i : buffer) {
+        std::cout << "hugeClientDataSize: " << hugeClientData.size() << std::endl;
+        //        for (char i: buffer) {
         //          std::cout << i;
         //          if (i == 0) {
         //            break;
         //          }
         //        }
+        //        std::cout << std::endl;
 
-        std::cout << std::endl;
+        if (!SUCCEEDED(SimConnect_SetClientData(hSimConnect, HUGE_CLIENT_DATA_ID, HUGE_CLIENT_DATA_DEFINITION_ID,
+                                           SIMCONNECT_CLIENT_DATA_SET_FLAG_DEFAULT, 0,
+                                           ChunkSize, buffer.data()))) {
+          LOG_ERROR("Setting data to sim for " + HUGE_CLIENT_DATA_NAME + " with dataDefId="
+                    + std::to_string(HUGE_CLIENT_DATA_DEFINITION_ID) + " failed!");
+          break;
+        }
         sentBytes += remainingBytes;
       }
     }
@@ -486,27 +540,33 @@ void simconnectLoop() {
 
     getDispatch();
 
-    std::cout << "TITLE      " << title.title << std::endl;
+    //    std::cout << "TITLE      " << title.title << std::endl;
+    //
+    //    std::cout << "DATA 1 ---- ( requested from sim ) --------------------------------" << std::endl;
+    //    std::cout << "FLOAT64    " << exampleClientData.aFloat64 << std::endl;
+    //    std::cout << "FLOAT32    " << exampleClientData.aFloat32 << std::endl;
+    //    std::cout << "INT64      " << exampleClientData.anInt64 << std::endl;
+    //    std::cout << "INT32      " << exampleClientData.anInt32 << std::endl;
+    //    std::cout << "INT16      " << exampleClientData.anInt16 << std::endl;
+    //    std::cout << "INT8       " << int(exampleClientData.anInt8) << std::endl;
+    //
+    //    std::cout << "DATA 2 ---- ( sent to sim ) ---------------------------------------" << std::endl;
+    //    std::cout << "INT8       " << int(example2ClientData.anInt8) << std::endl;
+    //    std::cout << "INT16      " << example2ClientData.anInt16 << std::endl;
+    //    std::cout << "INT32      " << example2ClientData.anInt32 << std::endl;
+    //    std::cout << "INT64      " << example2ClientData.anInt64 << std::endl;
+    //    std::cout << "FLOAT32    " << example2ClientData.aFloat32 << std::endl;
+    //    std::cout << "FLOAT64    " << example2ClientData.aFloat64 << std::endl;
 
-    std::cout << "DATA 1 ---- ( requested from sim ) --------------------------------" << std::endl;
-    std::cout << "FLOAT64    " << exampleClientData.aFloat64 << std::endl;
-    std::cout << "FLOAT32    " << exampleClientData.aFloat32 << std::endl;
-    std::cout << "INT64      " << exampleClientData.anInt64 << std::endl;
-    std::cout << "INT32      " << exampleClientData.anInt32 << std::endl;
-    std::cout << "INT16      " << exampleClientData.anInt16 << std::endl;
-    std::cout << "INT8       " << int(exampleClientData.anInt8) << std::endl;
-
-    std::cout << "DATA 2 ---- ( sent to sim ) ---------------------------------------" << std::endl;
-    std::cout << "INT8       " << int(example2ClientData.anInt8) << std::endl;
-    std::cout << "INT16      " << example2ClientData.anInt16 << std::endl;
-    std::cout << "INT32      " << example2ClientData.anInt32 << std::endl;
-    std::cout << "INT64      " << example2ClientData.anInt64 << std::endl;
-    std::cout << "FLOAT32    " << example2ClientData.aFloat32 << std::endl;
-    std::cout << "FLOAT64    " << example2ClientData.aFloat64 << std::endl;
+    std::cout << "BIG META DATA  ---- ( sent to sim ) ------------------------------" << std::endl;
+    std::cout << "Big client data size: " << sizeof(bigClientData) << std::endl;
 
     std::cout << "HUGE META DATA  ---- ( sent to sim ) ------------------------------" << std::endl;
     std::cout << "Huge client data size: " << hugeClientMetaData.size << std::endl;
     std::cout << "Huge client data hash: " << hugeClientMetaData.hash << std::endl;
+
+    std::cout << "HUGE DATA  ---- ( sent to sim ) -----------------------------------" << std::endl;
+    std::cout << "Huge client data size: " << hugeClientData.size() << std::endl;
 
     Sleep(updateDelay);
   }
@@ -514,18 +574,33 @@ void simconnectLoop() {
 
 int main([[maybe_unused]] int argc, [[maybe_unused]] char* argv[]) {
 
-  std::cout << "FBW CPP Framework Testing" << std::endl;
+  using namespace std;
 
-  // Prepare test data
-  std::cout << "Preparing test data..." << std::endl;
-  std::cout << "Huge Client Data size: " << hugeClientData.size() << std::endl;
-  hugeClientData.reserve(hugeClientDataSize);
-  fillWitRandomCharData(hugeClientData, hugeClientDataSize);
+  cout << "FBW CPP Framework Testing" << endl;
+
+  // Prepare test data for big client data
+  cout << "Preparing test data for big client data..." << std::endl;
+  copy(longText.begin(), longText.begin() + SIMCONNECT_CLIENTDATA_MAX_SIZE, bigClientData.dataChunk.data());
+  //  std::cout << "Big client data: " << std::endl;
+  //  for (BYTE i: bigClientData.dataChunk) {
+  //    std::cout << i;
+  //    if (i == 0) {
+  //      break;
+  //    }
+  //  }
+  //  std::cout << std::endl;
+
+  // Prepare test data for huge client data
+  cout << "Preparing test data for huge client data..." << endl;
+  cout << "Huge Client Data size: " << hugeClientData.size() << endl;
+  hugeClientData.reserve(hugeClientDataSizeInBytes);
+  hugeClientData = std::vector<BYTE>(longText.begin(), longText.end());
+  //  fillWitRandomCharData(hugeClientData, hugeClientDataSize);
   hugeClientDataHash = fingerPrintFVN(hugeClientData);
-  std::cout << "Huge client data size: " << hugeClientData.size() * sizeof(char) << std::endl;
-  std::cout << "Huge client data hash: " << hugeClientDataHash << std::endl;
-  std::cout << "Huge client data: " << std::endl;
-//  for (char i : hugeClientData) {
+  cout << "Huge client data size: " << hugeClientData.size() * sizeof(char) << endl;
+  cout << "Huge client data hash: " << hugeClientDataHash << endl;
+  //  std::cout << "Huge client data: " << endl;
+  //  for (char i : hugeClientData) {
   //    std::cout << i;
   //    if (i == 0) {
   //      break;
@@ -533,18 +608,18 @@ int main([[maybe_unused]] int argc, [[maybe_unused]] char* argv[]) {
   //  }
 
   if (!SUCCEEDED(SimConnect_Open(&hSimConnect, "fbw-cpp-framework-test", nullptr, 0, nullptr, 0))) {
-    printf("\nUnable to connect to Flight Simulator!");
+    cout << "Unable to connect to Flight Simulator!" << endl;
     return 1;
   }
-  printf("\nConnected to Flight Simulator!");
+  cout << "Connected to Flight Simulator!" << endl;
 
   simconnectLoop();
 
   if (!SUCCEEDED(SimConnect_Close(hSimConnect))) {
-    printf("\nUnable to disconnect from Flight Simulator!");
+    cout << "Unable to disconnect from Flight Simulator!" << endl;
     return 1;
   }
-  printf("\nDisconnected from Flight Simulator!");
+  cout << "Disconnected from Flight Simulator!" << endl;
 
   return 0;
 }

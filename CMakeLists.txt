@@ -13,6 +13,10 @@ set(MSFS_SDK "C:\\MSFS SDK")
 set(LOG_LEVEL 5)
 set(LOGGING "LOG_LEVEL=${LOG_LEVEL}")
 
+#set(CMAKE_CXX_FLAGS "-c -std=c++20")
+#set(CMAKE_CXX_FLAGS_DEBUG "-g -DDEBUG")
+#set(CMAKE_CXX_FLAGS_RELEASE "-flto=full -DNDEBUG -O3")
+
 add_definitions(
         -DWIN32_LEAN_AND_MEAN
         -DNOMINMAX
