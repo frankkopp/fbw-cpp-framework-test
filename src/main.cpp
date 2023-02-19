@@ -2,7 +2,6 @@
 
 #include <windows.h>
 #include <strsafe.h>
-#include <cstdio>
 #include <string>
 #include <random>
 #include <array>
@@ -497,10 +496,11 @@ void simconnectLoop() {
         //        }
         //        std::cout << std::endl;
 
+        BYTE* pDataSet = &hugeClientData[sentBytes];
         if (!SUCCEEDED(SimConnect_SetClientData(
           hSimConnect, HUGE_CLIENT_DATA_ID, HUGE_CLIENT_DATA_DEFINITION_ID,
           SIMCONNECT_CLIENT_DATA_SET_FLAG_DEFAULT, 0,
-          ChunkSize, &hugeClientData[sentBytes]))) {
+          ChunkSize, pDataSet))) {
 
           LOG_ERROR("Setting data to sim for " + HUGE_CLIENT_DATA_NAME + " with dataDefId="
                     + std::to_string(HUGE_CLIENT_DATA_DEFINITION_ID) + " failed!");
@@ -509,8 +509,9 @@ void simconnectLoop() {
         sentBytes += ChunkSize;
       }
       else {
-        std::array<char, ChunkSize> buffer{};
-        std::memcpy(buffer.data(), &hugeClientData[sentBytes], remainingBytes);
+        std::array<BYTE, ChunkSize> buffer{};
+        BYTE* const pDataSet = &hugeClientData[sentBytes];
+        std::memcpy(buffer.data(), pDataSet, remainingBytes);
 
         std::cout << "Sending chunk: " << std::setw(2) << ++chunkCount << " (last) " << std::endl;
         std::cout << "Sent bytes: " << sentBytes << std::endl;
@@ -580,7 +581,8 @@ int main([[maybe_unused]] int argc, [[maybe_unused]] char* argv[]) {
 
   // Prepare test data for big client data
   cout << "Preparing test data for big client data..." << std::endl;
-  copy(longText.begin(), longText.begin() + SIMCONNECT_CLIENTDATA_MAX_SIZE, bigClientData.dataChunk.data());
+  auto l = std::min(longText.size(), static_cast<std::size_t>( SIMCONNECT_CLIENTDATA_MAX_SIZE));
+  copy(longText.begin(), longText.begin() + l, bigClientData.dataChunk.data());
   //  std::cout << "Big client data: " << std::endl;
   //  for (BYTE i: bigClientData.dataChunk) {
   //    std::cout << i;
