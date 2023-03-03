@@ -5,6 +5,7 @@
 #include <string>
 #include <random>
 #include <array>
+#include <vector>
 #include <cassert>
 #include <iomanip>
 
@@ -14,7 +15,7 @@
 #include "logging.h"
 #include "longtext.h"
 
-const int updateDelay = 2500;
+const int updateDelay = 2000;
 
 int quit = 0;
 bool initilized = false;
@@ -102,9 +103,9 @@ const size_t hugeClientMetaDataSize = sizeof(HugeClientMetaData);
 const std::string HUGE_CLIENT_DATA_NAME = "HUGE CLIENT DATA";
 constexpr DWORD ChunkSize = SIMCONNECT_CLIENTDATA_MAX_SIZE;
 const size_t hugeClientDataSize = longText.size();
-const size_t hugeClientDataSizeInBytes = hugeClientDataSize * sizeof(BYTE);
+const size_t hugeClientDataSizeInBytes = hugeClientDataSize * sizeof(char);
 std::size_t hugeClientDataHash;
-std::vector<BYTE> hugeClientData{};
+std::vector<char> hugeClientData{};
 
 
 void initialize() {
@@ -374,7 +375,7 @@ void getDispatch() {
   }
 }
 
-void fillWitRandomCharData(std::vector<BYTE> &vec, const size_t size) {
+void fillWithRandomCharData(std::vector<BYTE> &vec, const size_t size) {
   std::random_device rd;
   std::mt19937 gen(rd());
   std::uniform_int_distribution<int> dis(0, 61);
@@ -384,16 +385,26 @@ void fillWitRandomCharData(std::vector<BYTE> &vec, const size_t size) {
   }
 }
 
-// Fowler-Noll-Vo hash function
-uint64_t fingerPrintFVN(std::vector<BYTE> &data) {
-  const uint64_t FNV_offset_basis = 14695981039346656037ULL;
-  const uint64_t FNV_prime = 1099511628211ULL;
-  uint64_t hash = FNV_offset_basis;
-  for (BYTE c: data) {
-    hash ^= static_cast<uint64_t>(c);
-    hash *= FNV_prime;
+// Template function for fingerprinting vector data
+template<typename T>
+uint64_t fingerPrintFVN(const std::vector<T> &vec) {
+  // Define some constants for FNV-1a hash
+  const uint64_t FNV_OFFSET_BASIS = 0xcbf29ce484222325;
+  const uint64_t FNV_PRIME = 0x100000001b3;
+  uint64_t fp = 0;
+  for (const auto &elem: vec) {
+    const T &value = elem;
+    uint64_t hash = FNV_OFFSET_BASIS;
+    const unsigned char* bytes = reinterpret_cast<const unsigned char*>(&value);
+    for (size_t i = 0; i < sizeof(T); i++) {
+      hash ^= static_cast<uint64_t>(bytes[i]);
+      hash *= FNV_PRIME;
+    }
+    uint64_t h = hash;
+    fp ^= h;
+    fp *= FNV_PRIME;
   }
-  return hash;
+  return fp;
 }
 
 void simconnectLoop() {
@@ -496,7 +507,7 @@ void simconnectLoop() {
         //        }
         //        std::cout << std::endl;
 
-        BYTE* pDataSet = &hugeClientData[sentBytes];
+        auto pDataSet = &hugeClientData[sentBytes];
         if (!SUCCEEDED(SimConnect_SetClientData(
           hSimConnect, HUGE_CLIENT_DATA_ID, HUGE_CLIENT_DATA_DEFINITION_ID,
           SIMCONNECT_CLIENT_DATA_SET_FLAG_DEFAULT, 0,
@@ -510,7 +521,7 @@ void simconnectLoop() {
       }
       else {
         std::array<BYTE, ChunkSize> buffer{};
-        BYTE* const pDataSet = &hugeClientData[sentBytes];
+        auto const pDataSet = &hugeClientData[sentBytes];
         std::memcpy(buffer.data(), pDataSet, remainingBytes);
 
         std::cout << "Sending chunk: " << std::setw(2) << ++chunkCount << " (last) " << std::endl;
@@ -526,8 +537,8 @@ void simconnectLoop() {
         //        std::cout << std::endl;
 
         if (!SUCCEEDED(SimConnect_SetClientData(hSimConnect, HUGE_CLIENT_DATA_ID, HUGE_CLIENT_DATA_DEFINITION_ID,
-                                           SIMCONNECT_CLIENT_DATA_SET_FLAG_DEFAULT, 0,
-                                           ChunkSize, buffer.data()))) {
+                                                SIMCONNECT_CLIENT_DATA_SET_FLAG_DEFAULT, 0,
+                                                ChunkSize, buffer.data()))) {
           LOG_ERROR("Setting data to sim for " + HUGE_CLIENT_DATA_NAME + " with dataDefId="
                     + std::to_string(HUGE_CLIENT_DATA_DEFINITION_ID) + " failed!");
           break;
@@ -561,6 +572,9 @@ void simconnectLoop() {
 
     std::cout << "BIG META DATA  ---- ( sent to sim ) ------------------------------" << std::endl;
     std::cout << "Big client data size: " << sizeof(bigClientData) << std::endl;
+    std::cout << "Fingerprint: "
+              << fingerPrintFVN(std::vector(bigClientData.dataChunk.begin(), bigClientData.dataChunk.end()))
+              << std::endl;
 
     std::cout << "HUGE META DATA  ---- ( sent to sim ) ------------------------------" << std::endl;
     std::cout << "Huge client data size: " << hugeClientMetaData.size << std::endl;
@@ -583,7 +597,7 @@ int main([[maybe_unused]] int argc, [[maybe_unused]] char* argv[]) {
   cout << "Preparing test data for big client data..." << std::endl;
   auto l = std::min(longText.size(), static_cast<std::size_t>( SIMCONNECT_CLIENTDATA_MAX_SIZE));
   copy(longText.begin(), longText.begin() + l, bigClientData.dataChunk.data());
-  //  std::cout << "Big client data: " << std::endl;
+  std::cout << "Big client data: " << std::endl;
   //  for (BYTE i: bigClientData.dataChunk) {
   //    std::cout << i;
   //    if (i == 0) {
@@ -596,8 +610,8 @@ int main([[maybe_unused]] int argc, [[maybe_unused]] char* argv[]) {
   cout << "Preparing test data for huge client data..." << endl;
   cout << "Huge Client Data size: " << hugeClientData.size() << endl;
   hugeClientData.reserve(hugeClientDataSizeInBytes);
-  hugeClientData = std::vector<BYTE>(longText.begin(), longText.end());
-  //  fillWitRandomCharData(hugeClientData, hugeClientDataSize);
+  hugeClientData = std::vector<char>(longText.begin(), longText.end());
+  //  fillWithRandomCharData(hugeClientData, hugeClientDataSize);
   hugeClientDataHash = fingerPrintFVN(hugeClientData);
   cout << "Huge client data size: " << hugeClientData.size() * sizeof(char) << endl;
   cout << "Huge client data hash: " << hugeClientDataHash << endl;
