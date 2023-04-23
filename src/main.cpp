@@ -16,7 +16,7 @@
 #include "logging.h"
 #include "longtext.h"
 
-static const int loopThrottleValue = 1000000;
+static const int loopThrottleValue = 100000000;
 
 int quit = 0;
 bool initilized = false;
@@ -35,37 +35,37 @@ enum CLIENT_DATA_IDS {
   EXAMPLE_CLIENT_DATA_ID,
   EXAMPLE2_CLIENT_DATA_ID,
   BIG_CLIENT_DATA_ID,
-  HUGE_CLIENT_META_DATA_ID,
-  HUGE_CLIENT_DATA_ID,
-  RECEIVE_STREAM_META_DATA_ID,
-  RECEIVE_STREAM_DATA_ID,
+  STREAM_RECEIVER_META_DATA_ID,  // sim is receiving
+  STREAM_RECEIVER_DATA_ID,       // sim is receiving
+  STREAM_SENDER_META_DATA_ID,    // sim is sending
+  STREAM_SENDER_DATA_ID,         // sim is sending
 };
 
 enum DATA_DEFINE_IDS {
-  DEFINITION_TITLE,
+  TITLE_DEFINITION_ID,
   EXAMPLE_CLIENT_DATA_DEFINITION_ID,
   EXAMPLE2_CLIENT_DATA_DEFINITION_ID,
   BIG_CLIENT_DATA_DEFINITION_ID,
-  HUGE_CLIENT_META_DATA_DEFINITION_ID,
-  HUGE_CLIENT_DATA_DEFINITION_ID,
-  RECEIVE_STREAM_META_DATA_DEFINITION_ID,
-  RECEIVE_STREAM_DATA_DEFINITION_ID,
+  STREAM_RECEIVER_META_DATA_DEFINITION_ID,
+  STREAM_RECEIVER_DATA_DEFINITION_ID,
+  STREAM_SENDER_META_DATA_DEFINITION_ID,
+  STREAM_SENDER_DATA_DEFINITION_ID,
 };
 
 enum DATA_REQUEST_IDS {
-  REQUEST_TITLE,
+  TITLE_REQUEST_ID,
   EXAMPLE_CLIENT_DATA_REQUEST_ID,
   EXAMPLE2_CLIENT_DATA_REQUEST_ID,
   BIG_CLIENT_DATA_REQUEST_ID,
-  HUGE_CLIENT_META_DATA_REQUEST_ID,
-  HUGE_CLIENT_DATA_REQUEST_ID,
-  RECEIVE_STREAM_META_DATA_REQUEST_ID,
-  RECEIVE_STREAM_DATA_REQUEST_ID,
+  STREAM_RECEIVER_META_DATA_REQUEST_ID,
+  STREAM_RECEIVER_DATA_REQUEST_ID,
+  STREAM_SENDER_META_DATA_REQUEST_ID,
+  STREAM_SENDER_DATA_REQUEST_ID,
 };
 
 // Title string sim variable
 struct Title {
-  char title[256] = "";
+  [[maybe_unused]] char title[256] = "";
 } title{};
 
 // ClientDataArea variables
@@ -98,33 +98,37 @@ struct BigClientData {
   std::array<char, SIMCONNECT_CLIENTDATA_MAX_SIZE> dataChunk;
 } __attribute__((packed)) bigClientData{};
 
-// ============================
-// Huge client data meta data
-const std::string HUGE_CLIENT_META_DATA_NAME = "HUGE CLIENT DATA META DATA";
-struct HugeClientMetaData {
+// ==============================
+// STREAM RECEIVER DATA meta data
+// sending to sim - sim is receiving
+
+struct StreamMetaData {
   size_t size;
   size_t hash;
 } __attribute__((packed));
-HugeClientMetaData hugeClientMetaData{};
-const size_t hugeClientMetaDataSize = sizeof(HugeClientMetaData);
 
-// Huge client data area
-const std::string HUGE_CLIENT_DATA_NAME = "HUGE CLIENT DATA";
+StreamMetaData streamReceiverMetaData{};
+const std::string STREAM_RECEIVER_META_DATA_NAME = "STREAM RECEIVER META DATA";
+const size_t streamReceiverMetaDataSize = sizeof(StreamMetaData);
+
+// STREAM RECEIVER DATA area
+const std::string STREAM_RECEIVER_DATA_NAME = "STREAM RECEIVER DATA";
 constexpr DWORD ChunkSize = SIMCONNECT_CLIENTDATA_MAX_SIZE;
-const size_t hugeClientDataSize = longText.size();
-const size_t hugeClientDataSizeInBytes = hugeClientDataSize * sizeof(char);
-std::size_t hugeClientDataHash;
-std::vector<char> hugeClientData{};
+const size_t streamReceiverDataSize = longText.size();
+const size_t streamReceiverDataSizeInBytes = streamReceiverDataSize * sizeof(char);
+std::size_t streamReceiverDataHash;
+std::vector<char> streamReceiverData{};
 
 // ============================
-// Huge client data 2 meta data
-const std::string RECEIVE_STREAM_META_DATA_NAME = "HUGE CLIENT DATA 2 META DATA";
-HugeClientMetaData receiveStreamMetaData{};
-const size_t receiveStreamMetaDataSize = sizeof(HugeClientMetaData);
+// STREAM SENDER META DATA
+// receiving from sim - sim is sending
+StreamMetaData streamSenderMetaData{};
+const std::string STREAM_SENDER_META_DATA_NAME = "STREAM SENDER META DATA";
+const size_t streamSenderMetaDataSize = sizeof(StreamMetaData);
 
-// Huge client data 2 area
-const std::string RECEIVE_STREAM_DATA_NAME = "HUGE CLIENT DATA 2";
-std::vector<char> receiveStreamData{};
+// STREAM RECEIVER DATA 2 area
+const std::string STREAM_SENDER_DATA_NAME = "STREAM SENDER DATA";
+std::vector<char> streamSenderData{};
 std::size_t receivedBytes = 0;
 std::size_t expectedByteCount = 0;
 int receivedChunks = 0;
@@ -139,7 +143,7 @@ void initialize() {
     LOG_ERROR("Failed to subscribe to SimStart event");
   }
 
-  if (!SUCCEEDED(SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_TITLE, "TITLE", nullptr, SIMCONNECT_DATATYPE_STRING256))) {
+  if (!SUCCEEDED(SimConnect_AddToDataDefinition(hSimConnect, TITLE_DEFINITION_ID, "TITLE", nullptr, SIMCONNECT_DATATYPE_STRING256))) {
     LOG_ERROR("Failed to add definition for Title");
   }
 
@@ -227,116 +231,116 @@ void initialize() {
   }
 
   // =========================
-  // HUGE CLIENT META DATA
+  // STREAM RECEIVER META DATA
 
-  hresult = SimConnect_MapClientDataNameToID(hSimConnect, HUGE_CLIENT_META_DATA_NAME.c_str(), HUGE_CLIENT_META_DATA_ID);
+  hresult = SimConnect_MapClientDataNameToID(hSimConnect, STREAM_RECEIVER_META_DATA_NAME.c_str(), STREAM_RECEIVER_META_DATA_ID);
   if (hresult != S_OK) {
     switch (hresult) {
       case SIMCONNECT_EXCEPTION_ALREADY_CREATED:
-        LOG_ERROR("Client data area HUGE_CLIENT_META_DATA_NAME already in use: " + HUGE_CLIENT_META_DATA_NAME);
+        LOG_ERROR("Client data area STREAM_RECEIVER_META_DATA_NAME already in use: " + STREAM_RECEIVER_META_DATA_NAME);
         break;
       case SIMCONNECT_EXCEPTION_DUPLICATE_ID:
-        LOG_ERROR("Client data area ID already in use: " + std::to_string(HUGE_CLIENT_META_DATA_ID));
+        LOG_ERROR("Client data area ID already in use: " + std::to_string(STREAM_RECEIVER_META_DATA_ID));
         break;
       default:
-        LOG_ERROR("Mapping client data area HUGE_CLIENT_META_DATA_NAME to ID failed: " + HUGE_CLIENT_META_DATA_NAME);
+        LOG_ERROR("Mapping client data area STREAM_RECEIVER_META_DATA_NAME to ID failed: " + STREAM_RECEIVER_META_DATA_NAME);
     }
   }
 
   // Add the data definition to the client data area
-  if (!SUCCEEDED(SimConnect_AddToClientDataDefinition(hSimConnect, HUGE_CLIENT_META_DATA_DEFINITION_ID, SIMCONNECT_CLIENTDATAOFFSET_AUTO,
-                                                      hugeClientMetaDataSize))) {
-    LOG_ERROR("Adding to client data definition failed: " + HUGE_CLIENT_META_DATA_NAME);
+  if (!SUCCEEDED(SimConnect_AddToClientDataDefinition(hSimConnect, STREAM_RECEIVER_META_DATA_DEFINITION_ID,
+                                                      SIMCONNECT_CLIENTDATAOFFSET_AUTO, streamReceiverMetaDataSize))) {
+    LOG_ERROR("Adding to client data definition failed: " + STREAM_RECEIVER_META_DATA_NAME);
   }
 
   // Create/allocate the client data area
-  if (!SUCCEEDED(SimConnect_CreateClientData(hSimConnect, HUGE_CLIENT_META_DATA_ID, hugeClientMetaDataSize,
+  if (!SUCCEEDED(SimConnect_CreateClientData(hSimConnect, STREAM_RECEIVER_META_DATA_ID, streamReceiverMetaDataSize,
                                              SIMCONNECT_CREATE_CLIENT_DATA_FLAG_DEFAULT))) {
-    LOG_ERROR("Creating client data failed: " + HUGE_CLIENT_META_DATA_NAME);
+    LOG_ERROR("Creating client data failed: " + STREAM_RECEIVER_META_DATA_NAME);
   }
 
   // =========================
-  // HUGE CLIENT DATA
+  // STREAM RECEIVER DATA
 
-  hresult = SimConnect_MapClientDataNameToID(hSimConnect, HUGE_CLIENT_DATA_NAME.c_str(), HUGE_CLIENT_DATA_ID);
+  hresult = SimConnect_MapClientDataNameToID(hSimConnect, STREAM_RECEIVER_DATA_NAME.c_str(), STREAM_RECEIVER_DATA_ID);
   if (hresult != S_OK) {
     switch (hresult) {
       case SIMCONNECT_EXCEPTION_ALREADY_CREATED:
-        LOG_ERROR("Client data area HUGE_CLIENT_DATA_NAME already in use: " + HUGE_CLIENT_DATA_NAME);
+        LOG_ERROR("Client data area STREAM_RECEIVER_DATA_NAME already in use: " + STREAM_RECEIVER_DATA_NAME);
         break;
       case SIMCONNECT_EXCEPTION_DUPLICATE_ID:
-        LOG_ERROR("Client data area ID already in use: " + std::to_string(HUGE_CLIENT_DATA_ID));
+        LOG_ERROR("Client data area ID already in use: " + std::to_string(STREAM_RECEIVER_DATA_ID));
         break;
       default:
-        LOG_ERROR("Mapping client data area HUGE_CLIENT_DATA_NAME to ID failed: " + HUGE_CLIENT_DATA_NAME);
+        LOG_ERROR("Mapping client data area STREAM_RECEIVER_DATA_NAME to ID failed: " + STREAM_RECEIVER_DATA_NAME);
     }
   }
 
   // Add the data definition to the client data area
-  if (!SUCCEEDED(
-          SimConnect_AddToClientDataDefinition(hSimConnect, HUGE_CLIENT_DATA_DEFINITION_ID, SIMCONNECT_CLIENTDATAOFFSET_AUTO, ChunkSize))) {
-    LOG_ERROR("Adding to client data definition failed: " + HUGE_CLIENT_DATA_NAME);
+  if (!SUCCEEDED(SimConnect_AddToClientDataDefinition(hSimConnect, STREAM_RECEIVER_DATA_DEFINITION_ID, SIMCONNECT_CLIENTDATAOFFSET_AUTO,
+                                                      ChunkSize))) {
+    LOG_ERROR("Adding to client data definition failed: " + STREAM_RECEIVER_DATA_NAME);
   }
 
   // Create/allocate the client data area
-  if (!SUCCEEDED(SimConnect_CreateClientData(hSimConnect, HUGE_CLIENT_DATA_ID, ChunkSize, SIMCONNECT_CREATE_CLIENT_DATA_FLAG_DEFAULT))) {
-    LOG_ERROR("Creating client data failed: " + HUGE_CLIENT_DATA_NAME);
+  if (!SUCCEEDED(
+          SimConnect_CreateClientData(hSimConnect, STREAM_RECEIVER_DATA_ID, ChunkSize, SIMCONNECT_CREATE_CLIENT_DATA_FLAG_DEFAULT))) {
+    LOG_ERROR("Creating client data failed: " + STREAM_RECEIVER_DATA_NAME);
   }
 
   // =========================
-  // RECEIVE STREAM META DATA
+  // STREAM SENDER META DATA
 
   // Map the client data area EXAMPLE2_CLIENT_DATA_NAME to the client data area ID
-  hresult = SimConnect_MapClientDataNameToID(hSimConnect, RECEIVE_STREAM_META_DATA_NAME.c_str(), RECEIVE_STREAM_META_DATA_ID);
+  hresult = SimConnect_MapClientDataNameToID(hSimConnect, STREAM_SENDER_META_DATA_NAME.c_str(), STREAM_SENDER_META_DATA_ID);
   if (hresult != S_OK) {
     switch (hresult) {
       case SIMCONNECT_EXCEPTION_ALREADY_CREATED:
-        LOG_ERROR("Client data area RECEIVE_STREAM_META_DATA_NAME already in use: " + RECEIVE_STREAM_META_DATA_NAME);
+        LOG_ERROR("Client data area STREAM_SENDER_META_DATA_NAME already in use: " + STREAM_SENDER_META_DATA_NAME);
         break;
       case SIMCONNECT_EXCEPTION_DUPLICATE_ID:
-        LOG_ERROR("Client data area ID already in use: " + std::to_string(RECEIVE_STREAM_META_DATA_ID));
+        LOG_ERROR("Client data area ID already in use: " + std::to_string(STREAM_SENDER_META_DATA_ID));
         break;
       default:
-        LOG_ERROR("Mapping client data area RECEIVE_STREAM_META_DATA_NAME to ID failed: " + RECEIVE_STREAM_META_DATA_NAME);
+        LOG_ERROR("Mapping client data area STREAM_SENDER_META_DATA_NAME to ID failed: " + STREAM_SENDER_META_DATA_NAME);
     }
   }
   // Add the data definition to the client data area
-  if (!SUCCEEDED(SimConnect_AddToClientDataDefinition(hSimConnect, RECEIVE_STREAM_META_DATA_DEFINITION_ID, SIMCONNECT_CLIENTDATAOFFSET_AUTO,
-                                                      receiveStreamMetaDataSize))) {
-    LOG_ERROR("Adding to client data definition failed: " + RECEIVE_STREAM_META_DATA_NAME);
+  if (!SUCCEEDED(SimConnect_AddToClientDataDefinition(hSimConnect, STREAM_SENDER_META_DATA_DEFINITION_ID, SIMCONNECT_CLIENTDATAOFFSET_AUTO,
+                                                      streamSenderMetaDataSize))) {
+    LOG_ERROR("Adding to client data definition failed: " + STREAM_SENDER_META_DATA_NAME);
   }
   // Request the client data area when changed
-  if (!SUCCEEDED(SimConnect_RequestClientData(hSimConnect, RECEIVE_STREAM_META_DATA_ID, RECEIVE_STREAM_META_DATA_REQUEST_ID,
-                                              RECEIVE_STREAM_META_DATA_DEFINITION_ID, SIMCONNECT_CLIENT_DATA_PERIOD_ON_SET))) {
-    LOG_ERROR("ClientDataAreaVariable: Requesting client data failed: " + RECEIVE_STREAM_META_DATA_NAME);
+  if (!SUCCEEDED(SimConnect_RequestClientData(hSimConnect, STREAM_SENDER_META_DATA_ID, STREAM_SENDER_META_DATA_REQUEST_ID,
+                                              STREAM_SENDER_META_DATA_DEFINITION_ID, SIMCONNECT_CLIENT_DATA_PERIOD_ON_SET))) {
+    LOG_ERROR("ClientDataAreaVariable: Requesting client data failed: " + STREAM_SENDER_META_DATA_NAME);
   }
 
   // =========================
-  // RECEIVE STREAM DATA
+  // STREAM SENDER DATA
 
   // Map the client data area EXAMPLE2_CLIENT_DATA_NAME to the client data area ID
-  hresult = SimConnect_MapClientDataNameToID(hSimConnect, RECEIVE_STREAM_DATA_NAME.c_str(), RECEIVE_STREAM_DATA_ID);
+  hresult = SimConnect_MapClientDataNameToID(hSimConnect, STREAM_SENDER_DATA_NAME.c_str(), STREAM_SENDER_DATA_ID);
   if (hresult != S_OK) {
     switch (hresult) {
       case SIMCONNECT_EXCEPTION_ALREADY_CREATED:
-        LOG_ERROR("Client data area already in use: " + RECEIVE_STREAM_DATA_NAME);
+        LOG_ERROR("Client data area already in use: " + STREAM_SENDER_DATA_NAME);
         break;
       case SIMCONNECT_EXCEPTION_DUPLICATE_ID:
-        LOG_ERROR("Client data area ID already in use: " + std::to_string(RECEIVE_STREAM_DATA_ID));
+        LOG_ERROR("Client data area ID already in use: " + std::to_string(STREAM_SENDER_DATA_ID));
         break;
       default:
-        LOG_ERROR("Mapping client data area " + RECEIVE_STREAM_DATA_NAME + " to ID + " + std::to_string(RECEIVE_STREAM_DATA_ID) +
-                  " failed");
+        LOG_ERROR("Mapping client data area " + STREAM_SENDER_DATA_NAME + " to ID + " + std::to_string(STREAM_SENDER_DATA_ID) + " failed");
     }
   }
   // Add the data definition to the client data area
-  if (!SUCCEEDED(SimConnect_AddToClientDataDefinition(hSimConnect, RECEIVE_STREAM_DATA_DEFINITION_ID, SIMCONNECT_CLIENTDATAOFFSET_AUTO,
+  if (!SUCCEEDED(SimConnect_AddToClientDataDefinition(hSimConnect, STREAM_SENDER_DATA_DEFINITION_ID, SIMCONNECT_CLIENTDATAOFFSET_AUTO,
                                                       ChunkSize))) {
-    LOG_ERROR("Adding to client data definition failed: " + RECEIVE_STREAM_DATA_NAME);
+    LOG_ERROR("Adding to client data definition failed: " + STREAM_SENDER_DATA_NAME);
   }
-  if (!SUCCEEDED(SimConnect_RequestClientData(hSimConnect, RECEIVE_STREAM_DATA_ID, RECEIVE_STREAM_DATA_REQUEST_ID,
-                                              RECEIVE_STREAM_DATA_DEFINITION_ID, SIMCONNECT_CLIENT_DATA_PERIOD_ON_SET))) {
-    LOG_ERROR("ClientDataAreaVariable: Requesting client data failed: " + RECEIVE_STREAM_DATA_NAME);
+  if (!SUCCEEDED(SimConnect_RequestClientData(hSimConnect, STREAM_SENDER_DATA_ID, STREAM_SENDER_DATA_REQUEST_ID,
+                                              STREAM_SENDER_DATA_DEFINITION_ID, SIMCONNECT_CLIENT_DATA_PERIOD_ON_SET))) {
+    LOG_ERROR("ClientDataAreaVariable: Requesting client data failed: " + STREAM_SENDER_DATA_NAME);
   }
 
   initilized = true;
@@ -349,23 +353,26 @@ void processStreamData(const SIMCONNECT_RECV_CLIENT_DATA* pClientData) {
     remainingBytes = ChunkSize;
   }
 
-  receiveStreamData.insert(receiveStreamData.end(), (char*)&pClientData->dwData, (char*)&pClientData->dwData + remainingBytes);
+  streamSenderData.insert(streamSenderData.end(), (char*)&pClientData->dwData, (char*)&pClientData->dwData + remainingBytes);
 
   receivedChunks++;
   receivedBytes += remainingBytes;
-  //  std::cout << "Received data chunk " << receivedChunks << " of " << remainingBytes << " Byte received: " << RECEIVE_STREAM_DATA_NAME << " ("
+  //  std::cout << "Received data chunk " << receivedChunks << " of " << remainingBytes << " Byte received: " << STREAM_SENDER_DATA_NAME <<
+  //  " ("
   //            << receivedBytes << "/" << expectedByteCount << ") " << std::endl;
 
   const bool receivedAllData = receivedBytes >= expectedByteCount;
   if (receivedAllData) {
-    std::cout << "Received all stream data: " << RECEIVE_STREAM_DATA_NAME << std::endl;
-    const uint64_t fingerPrintFvn = fingerPrintFVN(receiveStreamData);
-    std::cout << "RECEIVE STREAM DATA: "
-              << " size = " << receiveStreamData.size() << " bytes = " << receivedBytes << " chunks = " << receivedChunks
+    std::cout << "Received all stream data: " << STREAM_SENDER_DATA_NAME << std::endl;
+    const uint64_t fingerPrintFvn = fingerPrintFVN(streamSenderData);
+    std::cout << "STREAM SENDER DATA: "
+              << " size = " << streamSenderData.size() << " bytes = " << receivedBytes << " chunks = " << receivedChunks
               << " fingerprint = " << std::setw(21) << fingerPrintFvn << " (match = " << std::boolalpha
-              << (fingerPrintFvn == receiveStreamMetaData.hash) << ")" << std::endl;
-    std::cout << "Content: "
-              << "[" << std::string(receiveStreamData.begin(), receiveStreamData.begin() + 100) << " ... ]" << std::endl;
+              << (fingerPrintFvn == streamSenderMetaData.hash) << ")" << std::endl;
+    if (!streamSenderData.empty()) {
+      std::cout << "Content: "
+                << "[" << std::string(streamSenderData.begin(), streamSenderData.begin() + 100) << " ... ]" << std::endl;
+    }
     return;
   }
 }
@@ -382,19 +389,19 @@ void processReceivedClientData(SIMCONNECT_RECV* pRecv) {
       LOG_INFO("Received client data: " + EXAMPLE2_CLIENT_DATA_NAME);
       std::memcpy(&example2ClientData, &pClientData->dwData, example2ClientDataSize);
       break;
-    case RECEIVE_STREAM_META_DATA_REQUEST_ID:
-      LOG_INFO("Received client data: " + RECEIVE_STREAM_META_DATA_NAME);
-      std::memcpy(&receiveStreamMetaData, &pClientData->dwData, sizeof(receiveStreamMetaData));
-      receiveStreamData.clear();
+    case STREAM_SENDER_META_DATA_REQUEST_ID:
+      LOG_INFO("Received client data: " + STREAM_SENDER_META_DATA_NAME);
+      std::memcpy(&streamSenderMetaData, &pClientData->dwData, sizeof(streamSenderMetaData));
+      streamSenderData.clear();
       receivedBytes = 0;
       receivedChunks = 0;
-      expectedByteCount = receiveStreamMetaData.size;
-      receiveStreamData.reserve(expectedByteCount);
-      std::cout << "RECEIVE STREAM DATA ---- ( received from sim ) -----------------------------" << std::endl;
-      std::cout << "Receive Stream size: " << receiveStreamMetaData.size << std::endl;
-      std::cout << "Receive Stream hash: " << receiveStreamMetaData.hash << std::endl;
+      expectedByteCount = streamSenderMetaData.size;
+      streamSenderData.reserve(expectedByteCount);
+      std::cout << "STREAM SENDER DATA ---- ( received from sim ) -----------------------------" << std::endl;
+      std::cout << "Stream Sender size     : " << streamSenderMetaData.size << std::endl;
+      std::cout << "Stream Sender Data hash: " << streamSenderMetaData.hash << std::endl;
       break;
-    case RECEIVE_STREAM_DATA_REQUEST_ID:
+    case STREAM_SENDER_DATA_REQUEST_ID:
       processStreamData(pClientData);
       break;
     default:
@@ -406,7 +413,7 @@ void processReceivedClientData(SIMCONNECT_RECV* pRecv) {
 void processReceivedSimObjectData(SIMCONNECT_RECV* pRecv) {
   const auto pData = reinterpret_cast<const SIMCONNECT_RECV_SIMOBJECT_DATA*>(pRecv);
   switch (pData->dwRequestID) {
-    case REQUEST_TITLE:
+    case TITLE_REQUEST_ID:
       LOG_INFO("Received sim object data: Title");
       title = *((Title*)&pData->dwData);
       break;
@@ -480,70 +487,63 @@ void getDispatch() {
   }
 }
 
-void fillWithRandomCharData(std::vector<char>& vec, const size_t size) {
-  std::random_device rd;
-  std::mt19937 gen(rd());
-  std::uniform_int_distribution<int> dis(0, 61);
-  const char charset[] = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";
-  for (int i = 0; i < size; ++i) {
-    vec.emplace_back(charset[dis(gen)]);
-  }
-}
-
-void sendHugeClientData() {
+void sendStreamingClientData() {
   // =========================
-  // HUGE CLIENT META DATA
+  // STREAM RECEIVER META DATA
 
-  hugeClientMetaData.size = hugeClientDataSizeInBytes;
-  hugeClientMetaData.hash = hugeClientDataHash;
-  if (!SUCCEEDED(SimConnect_SetClientData(hSimConnect, HUGE_CLIENT_META_DATA_ID, HUGE_CLIENT_META_DATA_DEFINITION_ID,
-                                          SIMCONNECT_CLIENT_DATA_SET_FLAG_DEFAULT, 0, hugeClientMetaDataSize, &hugeClientMetaData))) {
-    LOG_ERROR("Setting data to sim for " + HUGE_CLIENT_META_DATA_NAME +
-              " with dataDefId=" + std::to_string(HUGE_CLIENT_META_DATA_DEFINITION_ID) + " failed!");
+  streamReceiverMetaData.size = streamReceiverDataSizeInBytes;
+  streamReceiverMetaData.hash = streamReceiverDataHash;
+  if (!SUCCEEDED(SimConnect_SetClientData(hSimConnect, STREAM_RECEIVER_META_DATA_ID, STREAM_RECEIVER_META_DATA_DEFINITION_ID,
+                                          SIMCONNECT_CLIENT_DATA_SET_FLAG_DEFAULT, 0, streamReceiverMetaDataSize,
+                                          &streamReceiverMetaData))) {
+    LOG_ERROR("Setting data to sim for " + STREAM_RECEIVER_META_DATA_NAME +
+              " with dataDefId=" + std::to_string(STREAM_RECEIVER_META_DATA_DEFINITION_ID) + " failed!");
     return;
   }
-  std::cout << "HUGE META DATA  ---- ( sent to sim ) ------------------------------" << std::endl;
-  std::cout << "Huge client data size: " << hugeClientMetaData.size << " Huge client data hash: " << hugeClientMetaData.hash << std::endl;
+  std::cout << "STREAM RECEIVER DATA  ---- ( sent to sim ) ------------------------------" << std::endl;
+  std::cout << "STREAM RECEIVER DATA size: " << streamReceiverMetaData.size << " STREAM RECEIVER DATA hash: " << streamReceiverMetaData.hash
+            << std::endl;
 
   // =========================
-  // HUGE CLIENT DATA
+  // STREAM RECEIVER DATA
   int chunkCount = 0;
   size_t sentBytes = 0;
 
-  std::cout << "Huge client data size: " << hugeClientDataSize << std::endl;
+  std::cout << "STREAM RECEIVER DATA size: " << streamReceiverDataSize << std::endl;
 
-  assert((hugeClientDataSizeInBytes == hugeClientDataSize) && "Huge client data size is not equal to huge client data size in bytes");
+  assert((streamReceiverDataSizeInBytes == streamReceiverDataSize) &&
+         "STREAM RECEIVER DATA size is not equal to STREAM RECEIVER DATA size in bytes");
 
-  while (sentBytes < hugeClientDataSize) {
-    size_t remainingBytes = hugeClientData.size() - sentBytes;
+  while (sentBytes < streamReceiverDataSize) {
+    size_t remainingBytes = streamReceiverData.size() - sentBytes;
     chunkCount++;
     if (remainingBytes >= ChunkSize) {
-      // std::cout << "Sending chunk: " << std::setw(2) << ++chunkCount << " Sent bytes: " << sentBytes << " Remaining bytes: " << remainingBytes << std::endl;
+      // std::cout << "Sending chunk: " << std::setw(2) << ++chunkCount << " Sent bytes: " << sentBytes << " Remaining bytes: " <<
+      // remainingBytes << std::endl;
 
-      auto pDataSet = &hugeClientData[sentBytes];
-      if (!SUCCEEDED(SimConnect_SetClientData(hSimConnect, HUGE_CLIENT_DATA_ID, HUGE_CLIENT_DATA_DEFINITION_ID,
+      auto pDataSet = &streamReceiverData[sentBytes];
+      if (!SUCCEEDED(SimConnect_SetClientData(hSimConnect, STREAM_RECEIVER_DATA_ID, STREAM_RECEIVER_DATA_DEFINITION_ID,
                                               SIMCONNECT_CLIENT_DATA_SET_FLAG_DEFAULT, 0, ChunkSize, pDataSet))) {
-        LOG_ERROR("Setting data to sim for " + HUGE_CLIENT_DATA_NAME +
-                  " with dataDefId=" + std::to_string(HUGE_CLIENT_DATA_DEFINITION_ID) + " failed!");
+        LOG_ERROR("Setting data to sim for " + STREAM_RECEIVER_DATA_NAME +
+                  " with dataDefId=" + std::to_string(STREAM_RECEIVER_DATA_DEFINITION_ID) + " failed!");
         break;
       }
       sentBytes += ChunkSize;
     } else {
       std::array<char, ChunkSize> buffer{};
-      auto const pDataSet = &hugeClientData[sentBytes];
+      auto const pDataSet = &streamReceiverData[sentBytes];
       memcpy(buffer.data(), pDataSet, remainingBytes);
 
-
-      if (!SUCCEEDED(SimConnect_SetClientData(hSimConnect, HUGE_CLIENT_DATA_ID, HUGE_CLIENT_DATA_DEFINITION_ID,
+      if (!SUCCEEDED(SimConnect_SetClientData(hSimConnect, STREAM_RECEIVER_DATA_ID, STREAM_RECEIVER_DATA_DEFINITION_ID,
                                               SIMCONNECT_CLIENT_DATA_SET_FLAG_DEFAULT, 0, ChunkSize, buffer.data()))) {
-        LOG_ERROR("Setting data to sim for " + HUGE_CLIENT_DATA_NAME +
-                  " with dataDefId=" + std::to_string(HUGE_CLIENT_DATA_DEFINITION_ID) + " failed!");
+        LOG_ERROR("Setting data to sim for " + STREAM_RECEIVER_DATA_NAME +
+                  " with dataDefId=" + std::to_string(STREAM_RECEIVER_DATA_DEFINITION_ID) + " failed!");
         break;
       }
       sentBytes += remainingBytes;
     }
   }
-  std::cout << "HUGE DATA  ---- ( sent to sim ) -----------------------------------" << std::endl;
+  std::cout << "STREAM RECEIVER DATA  ---- ( sent to sim ) -----------------------------------" << std::endl;
   std::cout << "Sent " << chunkCount << " chunks" << " Sent bytes: " << sentBytes << std::endl;
 }
 
@@ -560,7 +560,7 @@ void simconnectLoop() {
       std::cout << "loopCounter: " << loopCounter << std::endl;
 
       // Request title
-      if (!SUCCEEDED(SimConnect_RequestDataOnSimObject(hSimConnect, REQUEST_TITLE, DEFINITION_TITLE, SIMCONNECT_OBJECT_ID_USER,
+      if (!SUCCEEDED(SimConnect_RequestDataOnSimObject(hSimConnect, TITLE_REQUEST_ID, TITLE_DEFINITION_ID, SIMCONNECT_OBJECT_ID_USER,
                                                        SIMCONNECT_PERIOD_ONCE, SIMCONNECT_DATA_REQUEST_FLAG_DEFAULT))) {
         LOG_ERROR("Requesting title failed");
         break;
@@ -602,7 +602,7 @@ void simconnectLoop() {
         break;
       }
 
-      sendHugeClientData();
+      sendStreamingClientData();
     }
 
     // =========================
@@ -612,23 +612,23 @@ void simconnectLoop() {
     // =========================
     // OUTPUT
     if (loopCounter % loopThrottleValue == 0) {
-      //      std::cout << "TITLE      " << title.title << std::endl;
-      //
-      //      std::cout << "DATA 1 ---- ( requested from sim ) --------------------------------" << std::endl;
-      //      std::cout << "FLOAT64    " << exampleClientData.aFloat64 << std::endl;
-      //      std::cout << "FLOAT32    " << exampleClientData.aFloat32 << std::endl;
-      //      std::cout << "INT64      " << exampleClientData.anInt64 << std::endl;
-      //      std::cout << "INT32      " << exampleClientData.anInt32 << std::endl;
-      //      std::cout << "INT16      " << exampleClientData.anInt16 << std::endl;
-      //      std::cout << "INT8       " << int(exampleClientData.anInt8) << std::endl;
-      //
-      //      std::cout << "DATA 2 ---- ( sent to sim ) ---------------------------------------" << std::endl;
-      //      std::cout << "INT8       " << int(example2ClientData.anInt8) << std::endl;
-      //      std::cout << "INT16      " << example2ClientData.anInt16 << std::endl;
-      //      std::cout << "INT32      " << example2ClientData.anInt32 << std::endl;
-      //      std::cout << "INT64      " << example2ClientData.anInt64 << std::endl;
-      //      std::cout << "FLOAT32    " << example2ClientData.aFloat32 << std::endl;
-      //      std::cout << "FLOAT64    " << example2ClientData.aFloat64 << std::endl;
+      std::cout << "TITLE      " << title.title << std::endl;
+
+      std::cout << "DATA 1 ---- ( requested from sim ) --------------------------------" << std::endl;
+      std::cout << "FLOAT64    " << exampleClientData.aFloat64 << std::endl;
+      std::cout << "FLOAT32    " << exampleClientData.aFloat32 << std::endl;
+      std::cout << "INT64      " << exampleClientData.anInt64 << std::endl;
+      std::cout << "INT32      " << exampleClientData.anInt32 << std::endl;
+      std::cout << "INT16      " << exampleClientData.anInt16 << std::endl;
+      std::cout << "INT8       " << int(exampleClientData.anInt8) << std::endl;
+
+      std::cout << "DATA 2 ---- ( sent to sim ) ---------------------------------------" << std::endl;
+      std::cout << "INT8       " << int(example2ClientData.anInt8) << std::endl;
+      std::cout << "INT16      " << example2ClientData.anInt16 << std::endl;
+      std::cout << "INT32      " << example2ClientData.anInt32 << std::endl;
+      std::cout << "INT64      " << example2ClientData.anInt64 << std::endl;
+      std::cout << "FLOAT32    " << example2ClientData.aFloat32 << std::endl;
+      std::cout << "FLOAT64    " << example2ClientData.aFloat64 << std::endl;
 
       std::cout << "BIG META DATA  ---- ( sent to sim ) ------------------------------" << std::endl;
       std::cout << "Big client data size: " << sizeof(bigClientData) << std::endl;
@@ -645,15 +645,15 @@ void prepareTestData() {
   copy(longText.begin(), longText.begin() + l, bigClientData.dataChunk.data());
   std::cout << "Big client data: " << std::endl;
 
-  // Prepare test data for huge client data
-  std::cout << "Preparing test data for huge client data..." << std::endl;
-  std::cout << "Huge Client Data size: " << hugeClientData.size() << std::endl;
-  hugeClientData.reserve(hugeClientDataSizeInBytes);
-  hugeClientData = std::vector<char>(longText.begin(), longText.end());
-  //  fillWithRandomCharData(hugeClientData, hugeClientDataSize);
-  hugeClientDataHash = fingerPrintFVN(hugeClientData);
-  std::cout << "Huge client data size: " << hugeClientData.size() * sizeof(char) << std::endl;
-  std::cout << "Huge client data hash: " << hugeClientDataHash << std::endl;
+  // Prepare test data for STREAM RECEIVER DATA
+  std::cout << "Preparing test data for STREAM RECEIVER DATA..." << std::endl;
+  std::cout << "STREAM RECEIVER DATA size: " << streamReceiverData.size() << std::endl;
+  streamReceiverData.reserve(streamReceiverDataSizeInBytes);
+  streamReceiverData = std::vector<char>(longText.begin(), longText.end());
+  //  fillWithRandomCharData(streamReceiverData, streamReceiverDataSize);
+  streamReceiverDataHash = fingerPrintFVN(streamReceiverData);
+  std::cout << "STREAM RECEIVER DATA size: " << streamReceiverData.size() * sizeof(char) << std::endl;
+  std::cout << "STREAM RECEIVER DATA hash: " << streamReceiverDataHash << std::endl;
 }
 
 int main([[maybe_unused]] int argc, [[maybe_unused]] char* argv[]) {
